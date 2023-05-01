@@ -1,6 +1,14 @@
 import ssl
 import socket
 import threading
+import comm
+import dhl
+
+global sockets, status, dh, messages
+sockets = {}
+status = {}
+dh = {}
+messages = {}
 
 HOST = '127.0.0.1'
 PORT = 8443
@@ -8,15 +16,69 @@ PORT = 8443
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain('cert.pem', 'key.pem')
 
+global comm_context
+comm_context = {
+    "id": 0
+}
+
 def handle_client(conn, addr, client_id):
     with conn:
         print(f"Client {client_id} connected from {addr}")
-        while True:
+        conn.send(f"{client_id}".encode())
+        if client_id == 1:
+            while True:
+                data = conn.recv(1024)
+                parsed_data = comm.encoded_json_to_obj(data)
+                print(f"Received from client {client_id}: {data.decode()}")
+                message = f"Message received from client {client_id}"
+                print(message)
+                if parsed_data["message"] == "diffie-hellman":
+                    status[client_id] = 0
+                    status[parsed_data["to"]] = 0
+                    dh[client_id] = []
+                    dh[client_id].append(conn.recv())
+                    dh[client_id].append(conn.recv())
+                    dh[client_id].append(conn.recv())
+                    dh[client_id].append(conn.recv())
+                    sockets[parsed_data["to"]].sendall(data)
+                    while status[parsed_data["to"]] == 0:
+                        pass
+                    conn.sendall(dh[parsed_data["to"]].pop(0))
+                    break
+
+                else:
+                    conn.sendall(comm.message(message, parsed_data["from"], comm_context))
+
+            messages[client_id] = []
             data = conn.recv(1024)
-            if not data:
-                break
-            print(f"Received from client {client_id}: {data.decode()}")
-            conn.sendall(f"Message received from client {client_id}".encode())
+            print(data)
+            messages[client_id].append(data)
+            status[client_id] = 1
+
+        elif client_id == 2:
+            while True:
+                data = conn.recv(1024)
+                parsed_data = comm.encoded_json_to_obj(data)
+                print(f"Received from client {client_id}: {data.decode()}")
+                message = f"Message received from client {client_id}"
+                print(message)
+                if parsed_data["message"] == "diffie-hellman ack":
+                    dh[client_id] = []
+                    conn.sendall(dh[parsed_data["to"]].pop(0))
+                    conn.sendall(dh[parsed_data["to"]].pop(0))
+                    conn.sendall(dh[parsed_data["to"]].pop(0))
+                    conn.sendall(dh[parsed_data["to"]].pop(0))
+                    dh[client_id].append(conn.recv(1024))
+                    status[client_id] = 1
+                    break
+
+                else:
+                    conn.sendall(comm.message(message, parsed_data["from"], comm_context))
+
+            while status[1] == 0:
+                pass
+            conn.sendall(messages[1].pop(0))
+
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
     sock.bind((HOST, PORT))
@@ -26,6 +88,8 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
         client_id = 1
         while True:
             conn, addr = ssock.accept()
+            sockets[client_id] = conn
+            status[client_id] = True
             t = threading.Thread(target=handle_client, args=(conn, addr, client_id))
             t.start()
             client_id += 1
