@@ -50,10 +50,21 @@ def handle_client(conn, addr, client_id):
                     conn.sendall(comm.message(message, parsed_data["from"], comm_context))
 
             messages[client_id] = []
-            data = conn.recv(1024)
-            print(data)
-            messages[client_id].append(data)
             status[client_id] = 1
+            while status[2] == 0:
+                pass
+            while True:
+                status[client_id] = 0
+                data = conn.recv(1024)
+                print(data)
+                messages[client_id].append(data)
+                status[client_id] = 1
+                while messages[client_id] != []:
+                    pass
+                while messages[2] == []:
+                    pass
+                conn.sendall(messages[2].pop(0))
+                
 
         elif client_id == 2:
             while True:
@@ -75,9 +86,20 @@ def handle_client(conn, addr, client_id):
                 else:
                     conn.sendall(comm.message(message, parsed_data["from"], comm_context))
 
+            messages[client_id] = []
+            status[client_id] = 1
             while status[1] == 0:
                 pass
-            conn.sendall(messages[1].pop(0))
+            while True:
+                while messages[1] == []:
+                    pass
+                conn.sendall(messages[1].pop(0))
+                data = conn.recv(1024)
+                print(data)
+                messages[client_id].append(data)
+                while messages[client_id] != []:
+                    pass
+                
 
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:

@@ -23,8 +23,8 @@ def message(message, to, context):
 
 
 def sym_encrypt(plain_text, encryptor):
-    return (encryptor.update(plain_text) + encryptor.finalize()).decode('latin1')
+    return (encryptor.update(plain_text)).decode('latin1')
 
 
 def sym_decrypt(cipher_text, decryptor):
-    return decryptor.update(cipher_text.encode('latin1')) + decryptor.finalize()
+    return decryptor.update(cipher_text.encode('latin1'))

@@ -27,4 +27,9 @@ with create_connection((ip, port)) as client:
             data = tls.recv(1024)
 
         skey, encryptor, decryptor = dhl.send(tls, 2, comm_context)
-        tls.sendall(comm.message(comm.sym_encrypt(b'hello world', encryptor), 2, comm_context))
+        while True:
+            tls.sendall(comm.message(comm.sym_encrypt(input("Chat: ").encode(), encryptor), 2, comm_context))
+            data = tls.recv(1024)
+            print(data)
+            text = comm.encoded_json_to_obj(data)["message"]
+            print(comm.sym_decrypt(text, decryptor))
