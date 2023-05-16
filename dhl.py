@@ -10,7 +10,6 @@ def send(conn, to, context):
     parameters = dh.generate_parameters(generator=2, key_size=512)
     p = parameters.parameter_numbers().p
     g = parameters.parameter_numbers().g
-    print(p, g)
     #send p,g
     conn.send(comm.message(p, to, context))
     conn.send(comm.message(g, to, context))
@@ -23,6 +22,7 @@ def send(conn, to, context):
     #send nonce
     nonce = os.urandom(16)
     conn.send(comm.message(nonce.decode('latin1'), to, context))
+    print("nonce")
     print(nonce)
 
     #recv peer public value
@@ -31,24 +31,21 @@ def send(conn, to, context):
     peer_public_key = peer_public_numbers.public_key()
 
     #cal shared key
-    print('key')
+    print('shared key')
     shared_key = private_key.exchange(peer_public_key)
     print(int.from_bytes(shared_key, 'big'))
 
     #encrypt data
     derived_key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=None).derive(shared_key)
-    cipher = Cipher(algorithms.AES256(derived_key), modes.CTR(nonce))
-    encryptor = cipher.encryptor()
-    decryptor = cipher.decryptor()
-
-    return derived_key, encryptor, decryptor
+    print("skey")
+    print(derived_key)
+    return derived_key, nonce
 
     
 def recv(conn, to, context):
     #recv p,g
     p = int(comm.encoded_json_to_obj(conn.recv(1024))['message'])
     g = int(comm.encoded_json_to_obj(conn.recv(1024))['message'])
-    print(p,g)
     #set parameters
     pn = dh.DHParameterNumbers(p, g)
     parameters = pn.parameters()
@@ -60,6 +57,7 @@ def recv(conn, to, context):
 
     #recv nonce
     nonce = comm.encoded_json_to_obj(conn.recv(1024))['message'].encode('latin1')
+    print("nonce")
     print(nonce)
 
     #send public value
@@ -69,12 +67,10 @@ def recv(conn, to, context):
 
     #cal shared key
     shared_key = private_key.exchange(peer_public_key)
-    print('key')
+    print('shared key')
     print(int.from_bytes(shared_key, 'big'))
 
     derived_key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=None).derive(shared_key)
-    cipher = Cipher(algorithms.AES256(derived_key), modes.CTR(nonce))
-    encryptor = cipher.encryptor()
-    decryptor = cipher.decryptor()
-    
-    return derived_key, encryptor, decryptor
+    print("skey")
+    print(derived_key)
+    return derived_key, nonce

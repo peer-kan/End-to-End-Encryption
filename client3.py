@@ -9,6 +9,8 @@ import dhl
 from OpenSSL import crypto
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 hostname='example.org'
 ip = '127.0.0.1'
@@ -37,7 +39,7 @@ server_public_pem = server_public_key.public_bytes(
 )
 #
 # get client1 private key
-with open("client2_private_key.pem", "rb") as key_file:
+with open("client3_private_key.pem", "rb") as key_file:
     private_key = serialization.load_pem_private_key(
         key_file.read(),
         password=None,
@@ -50,7 +52,7 @@ private_pem = private_key.private_bytes(
 )
 #
 #get client1 public key
-with open("client2_public_key.pem", "rb") as key_file:
+with open("client3_public_key.pem", "rb") as key_file:
     public_key = serialization.load_pem_public_key(
         key_file.read(),
     )
@@ -73,18 +75,23 @@ with create_connection((ip, port)) as client:
             print(parsed_data)
             message = input("Enter message to send: ")
             tls.sendall(comm.message(message, 1, comm_context))
-            if message == "diffie-hellman ack":
+            if message == "accept invite":
                 break
 
-        skey, nonce = dhl.recv(tls, 1, comm_context)
-        while True:
-            data = tls.recv(2048)
-            print(data)
-            text = comm.encoded_json_to_obj(data)["message"]
-            if text == "chat with group":
-                break
-            print("Chat from 1: " + comm.sym_decrypt(text, skey, nonce))
-            tls.sendall(comm.message(comm.sym_encrypt(input("Chat: ").encode(), skey, nonce), 1, comm_context))
+        encrypted_skey = comm.encoded_json_to_obj(tls.recv(2048))["message"].encode('latin1')
+        nonce = comm.encoded_json_to_obj(tls.recv(2048))["message"].encode('latin1')
+        skey = private_key.decrypt(
+            encrypted_skey, 
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+        print("skey")
+        print(skey)
+        print("nonce")
+        print(nonce)
 
         while True:
             #recv message1
@@ -92,12 +99,13 @@ with create_connection((ip, port)) as client:
             print(data)
             text = comm.encoded_json_to_obj(data)["message"]
             print("Chat from 1: " + comm.sym_decrypt(text, skey, nonce))
-            #send message2 
-            message = input("Chat: ")
-            enc_message = comm.sym_encrypt(message.encode(), skey, nonce)
-            tls.sendall(comm.message(enc_message, 0, comm_context))
-            #recv message3
+            #recv mssage2
             data = tls.recv(1024)
             print(data)
             text = comm.encoded_json_to_obj(data)["message"]
-            print("Chat from 3: " + comm.sym_decrypt(text, skey, nonce))   
+            print("Chat from 2: " + comm.sym_decrypt(text, skey, nonce))
+            #send message3
+            message = input("Chat: ")
+            enc_message = comm.sym_encrypt(message.encode(), skey, nonce)
+            print(comm.sym_decrypt(enc_message, skey, nonce))
+            tls.sendall(comm.message(enc_message, 0, comm_context))

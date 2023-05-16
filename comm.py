@@ -8,7 +8,6 @@ def obj_to_encoded_json(obj):
 
 
 def encoded_json_to_obj(byte):
-    print(byte)
     return json.loads(byte.decode())
 
 
@@ -22,9 +21,29 @@ def message(message, to, context):
     return obj_to_encoded_json(obj)
 
 
-def sym_encrypt(plain_text, encryptor):
-    return (encryptor.update(plain_text)).decode('latin1')
+def command(command, context):
+    obj = {
+        "type": "command",
+        "from": context['id'],
+        "to": 0,
+        "command": command,
+    }
+    return obj_to_encoded_json(obj)
 
 
-def sym_decrypt(cipher_text, decryptor):
-    return decryptor.update(cipher_text.encode('latin1'))
+def sym_encrypt(plaintext, key, nonce):
+    encryptor = Cipher(
+        algorithms.AES256(key),
+        modes.CTR(nonce)
+    ).encryptor()
+    ciphertext = encryptor.update(plaintext) + encryptor.finalize()
+    return ciphertext.decode('latin1')
+
+
+def sym_decrypt(ciphertext, key, nonce):
+    decryptor = Cipher(
+        algorithms.AES256(key),
+        modes.CTR(nonce)
+    ).decryptor()
+    plaintext = decryptor.update(ciphertext.encode('latin1')) + decryptor.finalize()
+    return plaintext.decode()
