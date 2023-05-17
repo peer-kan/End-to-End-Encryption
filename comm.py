@@ -46,4 +46,9 @@ def sym_decrypt(ciphertext, key, nonce):
         modes.CTR(nonce)
     ).decryptor()
     plaintext = decryptor.update(ciphertext.encode('latin1')) + decryptor.finalize()
-    return plaintext.decode()
+    result = ''
+    try:
+        result = plaintext.decode()
+    except:
+        result = plaintext.decode('latin1')
+    return result

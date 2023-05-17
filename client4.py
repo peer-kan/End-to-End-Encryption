@@ -38,31 +38,6 @@ server_public_pem = server_public_key.public_bytes(
    encoding=serialization.Encoding.PEM,
    format=serialization.PublicFormat.SubjectPublicKeyInfo
 )
-#
-# get client3 private key
-with open("client3_private_key.pem", "rb") as key_file:
-    private_key = serialization.load_pem_private_key(
-        key_file.read(),
-        password=None,
-    )
-
-private_pem = private_key.private_bytes(
-   encoding=serialization.Encoding.PEM,
-   format=serialization.PrivateFormat.TraditionalOpenSSL,
-   encryption_algorithm=serialization.NoEncryption()
-)
-#
-#get client3 public key
-with open("client3_public_key.pem", "rb") as key_file:
-    public_key = serialization.load_pem_public_key(
-        key_file.read(),
-    )
-
-public_pem = public_key.public_bytes(
-   encoding=serialization.Encoding.PEM,
-   format=serialization.PublicFormat.SubjectPublicKeyInfo
-)
-#
 
 with create_connection((ip, port)) as client:
     with context.wrap_socket(client, server_hostname=hostname) as tls:
@@ -71,32 +46,25 @@ with create_connection((ip, port)) as client:
         print(f'Using {tls.version()}\n')
         tls.sendall(input("Username: ").encode())
         tls.sendall(input("Password: ").encode())
-        tls.sendall(public_pem)
         while True:
             data = tls.recv(1024)
             parsed_data = comm.encoded_json_to_obj(data)
             print(parsed_data)
             message = input("Enter message to send: ")
             tls.sendall(comm.message(message, 1, comm_context))
-            if message == "accept invite":
+            if message == "confirm device":
                 break
 
-        encrypted_skey = comm.encoded_json_to_obj(tls.recv(2048))["message"].encode('latin1')
         nonce = comm.encoded_json_to_obj(tls.recv(2048))["message"].encode('latin1')
-        skey = private_key.decrypt(
-            encrypted_skey, 
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None
-            )
-        )
-        print("skey")
-        print(skey)
-        print("nonce")
-        print(nonce)
-
-        while True:
+        secret = input("secret: ")
+        skey2 = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=None).derive(secret.encode())
+        encrypted_skey = tls.recv(2048).decode('latin1')
+        decryptor = Cipher(
+            algorithms.AES256(skey2),
+            modes.CTR(b'0' * 16)
+        ).decryptor()
+        skey = decryptor.update(encrypted_skey.encode('latin1')) + decryptor.finalize()
+        while True:     
             #recv message1
             data = tls.recv(1024)
             print(data)
@@ -107,19 +75,8 @@ with create_connection((ip, port)) as client:
             print(data)
             text = comm.encoded_json_to_obj(data)["message"]
             print("Chat from 2: " + comm.sym_decrypt(text, skey, nonce))
-            #send message3
-            message = input("Chat: ")
-            if message == "add device":
-                tls.sendall(comm.command(message, comm_context))
-                who = input("Who(id): ")
-                tls.sendall(comm.command(who, comm_context))
-                data = tls.recv(1024)
-                parsed_data = comm.encoded_json_to_obj(data)
-                if parsed_data["message"] == "send encryption key":
-                    tls.send(comm.message(nonce.decode('latin1'), 4, comm_context))
-                    secret = input("secret: ")
-                    skey2 = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=None).derive(secret.encode())
-                    tls.send(comm.sym_encrypt(skey, skey2, b'0' * 16).encode('latin1'))
-            else:
-                enc_message = comm.sym_encrypt(message.encode(), skey, nonce)
-                tls.sendall(comm.message(enc_message, 0, comm_context))
+            #recv message3
+            data = tls.recv(1024)
+            print(data)
+            text = comm.encoded_json_to_obj(data)["message"]
+            print("Chat from 3: " + comm.sym_decrypt(text, skey, nonce))  

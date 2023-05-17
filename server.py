@@ -17,7 +17,7 @@ pubKeyObject = crtObj.get_pubkey()
 pubKeyString = crypto.dump_publickey(crypto.FILETYPE_PEM,pubKeyObject)
 print(pubKeyString)
 
-global sockets, status, dh, messages, public_keys, nonces, three, global_message, accounts
+global sockets, status, dh, messages, public_keys, nonces, three, global_message, accounts, four
 sockets = {}
 status = {}
 dh = {}
@@ -25,6 +25,7 @@ messages = {}
 public_keys = {}
 nonces = {}
 three = False
+four = False
 global_message = ""
 accounts = {
     "1": b"\x0f\xfe\x1a\xbd\x1a\x08!SS\xc23\xd6\xe0\ta>\x95\xee\xc4%82\xa7a\xaf(\xff7\xacZ\x15\x0c",
@@ -58,7 +59,7 @@ private_pem = private_key.private_bytes(
 #
 
 def handle_client(conn, addr, client_id):
-    global global_message
+    global global_message, four
     with conn:
         print(f"Client {client_id} connected from {addr}")
         conn.send(f"{client_id}".encode())
@@ -73,8 +74,10 @@ def handle_client(conn, addr, client_id):
         else:
             print("incorrect password")
             return
-        public_keys[client_id] = conn.recv(1024)
-        print(public_keys[client_id])
+        if client_id != 4:
+            public_keys[client_id] = conn.recv(1024)
+            print(public_keys[client_id])
+            
         print("")
         if client_id == 1:
             while True:
@@ -255,20 +258,47 @@ def handle_client(conn, addr, client_id):
                 global_message = messages[1].pop(0)
                 status[client_id] = 1
                 conn.sendall(global_message)
+                if four:
+                    sockets[4].sendall(global_message)
                 #wait and send message 2
                 while status[1] == 1:
                     pass
                 while status[1] == 0:
                     pass
                 conn.sendall(global_message)
+                if four:
+                    sockets[4].sendall(global_message)
                 #recv message 3
                 data = conn.recv(1024)
                 parsed_data = comm.encoded_json_to_obj(data)
                 print(data)
-                messages[client_id].append(data)
-                while messages[client_id] != []:
-                    pass
+                if parsed_data["type"] == "command":
+                    if parsed_data["command"] == "add device":
+                        target = int(comm.encoded_json_to_obj(conn.recv(1024))["command"])
+                        sockets[target].sendall(comm.message(f"Add device from {client_id}", target, comm_context))
+                        status[target] = 0
+                        while status[target] == 0:
+                            pass
+                        conn.sendall(comm.message("send encryption key", 3, comm_context))
+                        sockets[target].sendall(conn.recv(2048))
+                        sockets[target].sendall(conn.recv(2048))
+                        four = True
+                        messages[client_id].append(comm.message(".", 0, comm_context))
 
+                else:
+                    messages[client_id].append(data)
+                    while messages[client_id] != []:
+                        pass
+                    if four:
+                        sockets[4].sendall(global_message)
+
+        elif client_id == 4:
+            data = conn.recv(1024)
+            parsed_data = comm.encoded_json_to_obj(data)
+            if parsed_data["message"] == "confirm device":
+                status[client_id] = 1
+            while True:
+                pass
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
     sock.bind((HOST, PORT))

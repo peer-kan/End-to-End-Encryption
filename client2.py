@@ -36,7 +36,7 @@ server_public_pem = server_public_key.public_bytes(
    format=serialization.PublicFormat.SubjectPublicKeyInfo
 )
 #
-# get client1 private key
+# get client2 private key
 with open("client2_private_key.pem", "rb") as key_file:
     private_key = serialization.load_pem_private_key(
         key_file.read(),
@@ -49,7 +49,7 @@ private_pem = private_key.private_bytes(
    encryption_algorithm=serialization.NoEncryption()
 )
 #
-#get client1 public key
+#get client2 public key
 with open("client2_public_key.pem", "rb") as key_file:
     public_key = serialization.load_pem_public_key(
         key_file.read(),
