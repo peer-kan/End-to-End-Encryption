@@ -1,268 +1,106 @@
-import ssl
-import socket
-import threading
 import comm
-import dhl
+from socket import *
+import threading
+import sys
 from OpenSSL import crypto
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-with open("cert.pem", "rb") as key_file:
-    cert = key_file.read()
-#cert is the encrypted certificate int this format -----BEGIN -----END    
-crtObj = crypto.load_certificate(crypto.FILETYPE_PEM, cert)
-pubKeyObject = crtObj.get_pubkey()
-pubKeyString = crypto.dump_publickey(crypto.FILETYPE_PEM,pubKeyObject)
-print(pubKeyString)
+global skey
+skey = rsa.generate_private_key(
+    public_exponent=65537,
+    key_size=2048,
+)
 
-global sockets, status, dh, messages, public_keys, nonces, three, global_message
-sockets = {}
-status = {}
-dh = {}
-messages = {}
-public_keys = {}
-nonces = {}
-three = False
-global_message = ""
-
-HOST = '127.0.0.1'
-PORT = 8443
-
-context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-context.load_cert_chain('cert.pem', 'key.pem')
-
-global comm_context
-comm_context = {
-    "id": 0
-}
-
-# get client1 private key
-with open("key.pem", "rb") as key_file:
-    private_key = serialization.load_pem_private_key(
-        key_file.read(),
-        password=None,
+with open("private_key.pem", "wb") as key_file:
+    key_file.write(
+        skey.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
     )
 
-private_pem = private_key.private_bytes(
-   encoding=serialization.Encoding.PEM,
-   format=serialization.PrivateFormat.TraditionalOpenSSL,
-   encryption_algorithm=serialization.NoEncryption()
-)
-#
+with open("public_key.pem", "wb") as key_file:
+    key_file.write(
+        skey.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+    )
 
-def handle_client(conn, addr, client_id):
-    global global_message
-    with conn:
-        print(f"Client {client_id} connected from {addr}")
-        conn.send(f"{client_id}".encode())
-        public_keys[client_id] = conn.recv(1024)
-        print(public_keys[client_id])
-        if client_id == 1:
-            while True:
-                data = conn.recv(1024)
-                parsed_data = comm.encoded_json_to_obj(data)
-                print(f"Received from client {client_id}: {data.decode()}")
-                message = f"Message received from client {client_id}"
-                print(message)
-                if parsed_data["message"] == "diffie-hellman":
-                    status[client_id] = 0
-                    status[parsed_data["to"]] = 0
-                    dh[client_id] = []
-                    nonces[client_id] = []
-                    #send diffie-hellman params
-                    dh[client_id].append(conn.recv())
-                    dh[client_id].append(conn.recv())
-                    dh[client_id].append(conn.recv())
-                    nonce = conn.recv()
-                    nonces[client_id].append(nonce)
-                    dh[client_id].append(nonce)
-                    sockets[parsed_data["to"]].sendall(data)
-                    while status[parsed_data["to"]] == 0:
-                        pass
-                    conn.sendall(dh[parsed_data["to"]].pop(0))
-                    break
+global cert
+cert = crypto.X509()
+cert.set_version(0x2)
+cert.set_serial_number(0)
+cert.get_subject().CN = "localhost"
+cert.gmtime_adj_notBefore(0)
+cert.gmtime_adj_notAfter(315360000)
+cert.set_issuer(cert.get_subject())
+cert.set_pubkey(skey.public_key())
+cert.sign(skey, "sha256")
 
-                else:
-                    conn.sendall(comm.message(message, parsed_data["from"], comm_context))
+with open("cert.pem", "wb") as cert_file:
+    cert_file.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
 
-            messages[client_id] = []
-            status[client_id] = 1
-            while status[2] == 0:
-                pass
-            while True:
-                status[client_id] = 0
-                data = conn.recv(1024)
-                parsed_data = comm.encoded_json_to_obj(data)
-                print(data)
-                if parsed_data["type"] == "command":
-                    if parsed_data["command"] == "add user":
-                        target = int(comm.encoded_json_to_obj(conn.recv(1024))["command"])
-                        sockets[target].sendall(comm.message(f"Invite from {client_id}", target, comm_context))
-                        status[target] = 1
-                        while status[client_id] == 0:
-                            pass
-                        conn.sendall(comm.message(public_keys[target].decode('latin1'), client_id, comm_context))
-                        conn.sendall(comm.message(private_key.sign(
-                            public_keys[target],
-                            padding.PSS(
-                                mgf=padding.MGF1(hashes.SHA256()),
-                                salt_length=padding.PSS.MAX_LENGTH
-                            ),
-                            hashes.SHA256()
-                        ).decode('latin1'), client_id, comm_context))
-                        data = conn.recv(2048)
-                        status[client_id] = 1
-                        messages[target].append(data)
-                        status[target] = 1
-                        break
-                            
-                else:
-                    messages[client_id].append(data)
-                    status[client_id] = 1
-                    while messages[client_id] != []:
-                        pass
-                    while messages[2] == []:
-                        pass
-                    conn.sendall(messages[2].pop(0))
+tls = socket(AF_INET, SOCK_STREAM)
+tls.bind(('0.0.0.0', 8443))
+tls.listen(5)
+context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+context.load_cert_chain(certfile="cert.pem", keyfile="private_key.pem")
+connectionID = 0
+global comm_context
+comm_context = {}
 
-            while True:
-                #recv message1
-                data = conn.recv(1024)
-                parsed_data = comm.encoded_json_to_obj(data)
-                print(data)
-                messages[client_id].append(data)
-                while messages[client_id] != []:
-                    pass
-                #pop and send message2
-                status[client_id] = 0
-                while messages[2] == []:
-                    pass
-                global_message = messages[2].pop(0)
-                status[client_id] = 1
-                conn.sendall(global_message)
-                #wait and send message3
-                while status[2] == 1:
-                    pass
-                while status[2] == 0:
-                    pass
-                conn.sendall(global_message)
+def client_handling(connection):
+    global connectionID
+    connectionID += 1
+    comm_context["id"] = connectionID
+    print(f'Client {connectionID} connected')
+    connection.sendall(str(connectionID).encode())
+    public_key = serialization.load_pem_public_key(connection.recv(2048))
+    auth_message_encrypted_json = connection.recv(2048)
+    auth_message_encrypted = comm.encoded_json_to_obj(auth_message_encrypted_json)
+    auth_message_json = comm.sym_decrypt(auth_message_encrypted, private_key, nonce)
+    auth_message = comm.encoded_json_to_obj(auth_message_json)
+    username = auth_message["message"]["username"]
+    password = auth_message["message"]["password"]
 
-            
-
-        elif client_id == 2:
-            while True:
-                data = conn.recv(1024)
-                parsed_data = comm.encoded_json_to_obj(data)
-                print(f"Received from client {client_id}: {data.decode()}")
-                message = f"Message received from client {client_id}"
-                print(message)
-                if parsed_data["message"] == "diffie-hellman ack":
-                    dh[client_id] = []
-                    conn.sendall(dh[parsed_data["to"]].pop(0))
-                    conn.sendall(dh[parsed_data["to"]].pop(0))
-                    conn.sendall(dh[parsed_data["to"]].pop(0))
-                    conn.sendall(dh[parsed_data["to"]].pop(0))
-                    dh[client_id].append(conn.recv(1024))
-                    status[client_id] = 1
-                    break
-
-                else:
-                    conn.sendall(comm.message(message, parsed_data["from"], comm_context))
-
-            messages[client_id] = []
-            status[client_id] = 1
-            while status[1] == 0:
-                pass
-            is_continue = True
-            while True:
-                global three
-                while messages[1] == []:
-                    if three == True:
-                        conn.sendall(comm.message("chat with group", 2, comm_context))
-                        is_continue = False
-                        break
-                if is_continue == False:
-                    break
-                conn.sendall(messages[1].pop(0))
-                data = conn.recv(1024)
-                print(data)
-                messages[client_id].append(data)
-                while messages[client_id] != []:
-                    pass
-            
-            while True:
-                #wait and send message1
-                while status[3] == 1:
-                    pass
-                while status[3] == 0:
-                    pass
-                conn.sendall(global_message)
-                #recv message2
-                data = conn.recv(1024)
-                parsed_data = comm.encoded_json_to_obj(data)
-                print(data)
-                messages[client_id].append(data)
-                while messages[client_id] != []:
-                    pass
-                #pop and send message3
-                status[client_id] = 0
-                while messages[3] == []:
-                    pass
-                global_message = messages[3].pop(0)
-                status[client_id] = 1
-                conn.sendall(global_message)
-
-        elif client_id == 3:
-            messages[client_id] = []
-            status[client_id] = 0
-            while status[client_id] == 0:
-                pass
-            data = conn.recv(1024)
-            parsed_data = comm.encoded_json_to_obj(data)
-            if parsed_data["message"] == "accept invite":
-                status[client_id] = 0
-                status[parsed_data["to"]] = 1
-                while status[client_id] == 0:
-                    pass
-                conn.sendall(messages[client_id].pop(0))
-                conn.sendall(nonces[parsed_data["to"]].pop(0))
-                three = True
-            
-            while True:
-                #pop and send message1
-                status[client_id] = 0
-                while messages[1] == []:
-                    pass
-                global_message = messages[1].pop(0)
-                status[client_id] = 1
-                conn.sendall(global_message)
-                #wait and send message 2
-                while status[1] == 1:
-                    pass
-                while status[1] == 0:
-                    pass
-                conn.sendall(global_message)
-                #recv message 3
-                data = conn.recv(1024)
-                parsed_data = comm.encoded_json_to_obj(data)
-                print(data)
-                messages[client_id].append(data)
-                while messages[client_id] != []:
-                    pass
-
-
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
-    sock.bind((HOST, PORT))
-    sock.listen(5)
-    with context.wrap_socket(sock, server_side=True) as ssock:
-        print(f"Server listening on {HOST}:{PORT}")
-        client_id = 1
+    # Verify username and password
+    if verify_credentials(username, password):
+        connection.sendall(comm.message("accept invite", 1, comm_context))
+        connection.sendall(comm.obj_to_encoded_json(comm.sym_encrypt(comm.obj_to_encoded_json(str(private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo)), 'latin1')), public_key, nonce))
+        connection.sendall(comm.obj_to_encoded_json(comm.sym_encrypt(comm.obj_to_encoded_json(nonce), public_key, nonce)))
         while True:
-            conn, addr = ssock.accept()
-            sockets[client_id] = conn
-            status[client_id] = 1
-            t = threading.Thread(target=handle_client, args=(conn, addr, client_id))
-            t.start()
-            client_id += 1
+            try:
+                data = connection.recv(1024)
+                parsed_data = comm.encoded_json_to_obj(data)
+                print(parsed_data)
+            except Exception as e:
+                print(str(e))
+                print(f'Client {connectionID} disconnected')
+                break
+    else:
+        connection.sendall(comm.message("reject invite", 1, comm_context))
+        print(f'Client {connectionID} rejected')
+        print(f'Client {connectionID} disconnected')
+
+def verify_credentials(username, password):
+    # TODO: Implement your logic to verify the username and password
+    # For example, you can check against a database or a hardcoded list of valid credentials
+    return username == "admin" and password == "password"
+
+try:
+    while True:
+        connection, address = tls.accept()
+        t = threading.Thread(target=client_handling, args=(connection,))
+        t.daemon = True
+        t.start()
+except KeyboardInterrupt:
+    tls.close()
+    sys.exit()
