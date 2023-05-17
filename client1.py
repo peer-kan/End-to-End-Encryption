@@ -66,6 +66,8 @@ with create_connection((ip, port)) as client:
         comm_context["id"] = int(tls.recv(1024))
         print(comm_context['id'])
         print(f'Using {tls.version()}\n')
+        tls.sendall(input("Username: ").encode())
+        tls.sendall(input("Password: ").encode())
         tls.sendall(public_pem)
         while True:
             message = input("Enter message to send: ")

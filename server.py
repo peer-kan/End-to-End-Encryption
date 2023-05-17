@@ -17,7 +17,7 @@ pubKeyObject = crtObj.get_pubkey()
 pubKeyString = crypto.dump_publickey(crypto.FILETYPE_PEM,pubKeyObject)
 print(pubKeyString)
 
-global sockets, status, dh, messages, public_keys, nonces, three, global_message
+global sockets, status, dh, messages, public_keys, nonces, three, global_message, accounts
 sockets = {}
 status = {}
 dh = {}
@@ -26,6 +26,11 @@ public_keys = {}
 nonces = {}
 three = False
 global_message = ""
+accounts = {
+    "1": b"\x0f\xfe\x1a\xbd\x1a\x08!SS\xc23\xd6\xe0\ta>\x95\xee\xc4%82\xa7a\xaf(\xff7\xacZ\x15\x0c",
+    "2": b'\xed\xee)\xf8\x82T;\x95f \xb2m\x0e\xe0\xe7\xe9P9\x9b\x1cB"\xf5\xde\x05\xe0d%\xb4\xc9\x95\xe9',
+    "3": b"1\x8a\xee?\xed\x8c\x9d\x04\r5\xa7\xfc\x1f\xa7v\xfb1083\xaa-\xe8\x855M\xdf=D\xd8\xfbi"
+}
 
 HOST = '127.0.0.1'
 PORT = 8443
@@ -57,8 +62,20 @@ def handle_client(conn, addr, client_id):
     with conn:
         print(f"Client {client_id} connected from {addr}")
         conn.send(f"{client_id}".encode())
+        user = conn.recv(1024).decode()
+        password = conn.recv(1024)
+        digest = hashes.Hash(hashes.SHA256())
+        digest.update(password)
+        result = digest.finalize()
+        if accounts[user] == result:
+            print("")
+            print("correct password")
+        else:
+            print("incorrect password")
+            return
         public_keys[client_id] = conn.recv(1024)
         print(public_keys[client_id])
+        print("")
         if client_id == 1:
             while True:
                 data = conn.recv(1024)
